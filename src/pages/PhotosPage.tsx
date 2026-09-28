@@ -1,14 +1,11 @@
-import { useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { endpoints } from '../api/endpoints';
 import { ErrorMessage } from '../components/ErrorMessage';
 import { Loader } from '../components/Loader';
 import { useFetch } from '../hooks/useFetch';
+import { useDebounce } from '../hooks/useDebounce';
 import type { Photo } from '../types';
 import { simulateHeavyRender } from '../utils/simulateHeavyRender';
-
-// ЗАДАЧА 6. Страница работает, но тормозит.
-// Найдите проблемы производительности и исправьте их.
-// Логику и внешний вид страницы менять не нужно.
 
 const ALBUM_IDS = Array.from({ length: 100 }, (_, i) => i + 1);
 
@@ -18,7 +15,12 @@ type PhotoRowProps = {
   onToggleFavorite: (id: number) => void;
 };
 
-function PhotoRow({ photo, isFavorite, onToggleFavorite }: PhotoRowProps) {
+// Правка 1
+const PhotoRow = memo(function PhotoRow({
+  photo,
+  isFavorite,
+  onToggleFavorite,
+}: PhotoRowProps) {
   simulateHeavyRender();
 
   return (
@@ -31,7 +33,7 @@ function PhotoRow({ photo, isFavorite, onToggleFavorite }: PhotoRowProps) {
       </button>
     </div>
   );
-}
+});
 
 export default function PhotosPage() {
   const { data: photos, isLoading, error, refetch } = useFetch<Photo[]>(endpoints.photos);
@@ -42,25 +44,33 @@ export default function PhotosPage() {
   const [favorites, setFavorites] = useState<number[]>([]);
   const [secondsOnPage, setSecondsOnPage] = useState(0);
 
+  // Правка 2
+  const debouncedQuery = useDebounce(query, 500);
+
   useEffect(() => {
     const timer = setInterval(() => setSecondsOnPage(s => s + 1), 1000);
     return () => clearInterval(timer);
   }, []);
 
-  const visiblePhotos = (photos ?? [])
-    .filter(photo => albumId === 'all' || photo.albumId === Number(albumId))
-    .filter(photo => photo.title.toLowerCase().includes(query.toLowerCase()))
-    .sort((a, b) =>
-      sortOrder === 'asc' ? a.title.localeCompare(b.title) : b.title.localeCompare(a.title)
-    );
+  // Правка 3
+  const visiblePhotos = useMemo(() => {
+    return (photos ?? [])
+      .filter(photo => albumId === 'all' || photo.albumId === Number(albumId))
+      .filter(photo => photo.title.toLowerCase().includes(debouncedQuery.toLowerCase()))
+      .sort((a, b) =>
+        sortOrder === 'asc' ? a.title.localeCompare(b.title) : b.title.localeCompare(a.title)
+      );
+  }, [photos, albumId, debouncedQuery, sortOrder]);
 
-  const handleToggleFavorite = (id: number) => {
-    if (favorites.includes(id)) {
-      setFavorites(favorites.filter(favoriteId => favoriteId !== id));
-    } else {
-      setFavorites([...favorites, id]);
-    }
-  };
+  // Правка 4
+  const handleToggleFavorite = useCallback((id: number) => {
+    setFavorites(prev =>
+      prev.includes(id) ? prev.filter(favoriteId => favoriteId !== id) : [...prev, id]
+    );
+  }, []);
+
+  // Правка 5
+  const favoriteSet = useMemo(() => new Set(favorites), [favorites]);
 
   if (isLoading) return <Loader text="Загружаем медиатеку..." />;
   if (error) return <ErrorMessage message={error} onRetry={refetch} />;
@@ -104,7 +114,7 @@ export default function PhotosPage() {
           <PhotoRow
             key={photo.id}
             photo={photo}
-            isFavorite={favorites.includes(photo.id)}
+            isFavorite={favoriteSet.has(photo.id)}
             onToggleFavorite={handleToggleFavorite}
           />
         ))}

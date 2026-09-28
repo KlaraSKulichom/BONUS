@@ -1,22 +1,37 @@
 import { useState } from 'react';
 import { Pagination } from '../components/Pagination';
 import { PostCard } from '../components/PostCard';
+import { Loader } from '../components/Loader';
+import { ErrorMessage } from '../components/ErrorMessage';
+import { EmptyState } from '../components/EmptyState';
+import { useFetch } from '../hooks/useFetch';
+import { useDebounce } from '../hooks/useDebounce';
+import { endpoints } from '../api/endpoints';
 import type { Post } from '../types';
+
+const POSTS_PER_PAGE = 10;
 
 export default function PostsPage() {
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
 
-  // TODO (задача 3.1): отложите query через useDebounce с задержкой 500 мс.
-  // TODO (задача 3.2): загрузите посты через useFetch<Post[]>.
-  //   URL возьмите из endpoints.posts({ page, query: debouncedQuery }).
-  // TODO (задача 3.3): вместо заглушки ниже используйте данные из хука.
-  const posts: Post[] = [];
+  const debouncedQuery = useDebounce(query, 500);
+
+  const {
+    data: posts,
+    isLoading,
+    error,
+    refetch,
+  } = useFetch<Post[]>(endpoints.posts({ page, query: debouncedQuery }));
 
   function handleQueryChange(value: string) {
     setQuery(value);
-    // TODO (задача 3.4): при новом поиске возвращайте пользователя на первую страницу.
+
+    setPage(1);
   }
+  const isTyping = query !== debouncedQuery;
+
+  const hasNext = !!posts && posts.length === POSTS_PER_PAGE;
 
   return (
     <section>
@@ -29,16 +44,20 @@ export default function PostsPage() {
         placeholder="Поиск по заголовку и тексту"
       />
 
-      {/*
-        TODO (задача 3.5): добавьте отображение состояний:
-        - пока пользователь печатает (query !== debouncedQuery) -- «Печатаете...»;
-        - загрузка -- компонент Loader;
-        - ошибка -- ErrorMessage с кнопкой «Повторить» (refetch из useFetch);
-        - пустой результат -- EmptyState «Ничего не найдено».
-      */}
+      {isTyping && <p>Печатаете...</p>}
+
+      {isLoading && <Loader />}
+
+      {error && !isLoading && (
+        <ErrorMessage message={error} onRetry={refetch} />
+      )}
+
+      {!isLoading && !error && posts && posts.length === 0 && (
+        <EmptyState text="Ничего не найдено" />
+      )}
 
       <ul className="list">
-        {posts.map(post => (
+        {posts?.map(post => (
           <PostCard key={post.id} post={post} />
         ))}
       </ul>
@@ -48,7 +67,12 @@ export default function PostsPage() {
         Если постов пришло меньше POSTS_PER_PAGE, следующей страницы нет.
         isDisabled -- блокируйте кнопки во время загрузки.
       */}
-      <Pagination page={page} hasNext={false} isDisabled={false} onChange={setPage} />
+      <Pagination
+        page={page}
+        hasNext={hasNext}
+        isDisabled={isLoading}
+        onChange={setPage}
+      />
     </section>
   );
 }
